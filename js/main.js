@@ -1,9 +1,5 @@
-const map = L.map('map', { zoomControl: true }).setView([36.35, 127.8], 7);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-}).addTo(map);
-
 const state = { hospitals: [], markers: [], filter: 'all', query: '' };
+let map;
 
 const escapeHtml = value => String(value || '-').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
 const supportState = hospital => {
@@ -14,6 +10,11 @@ const supportState = hospital => {
 };
 const isSupported = hospital => supportState(hospital) === 'yes';
 const supportLabel = hospital => ({ yes: '지원 가능', no: '지원 불가', unknown: '확인 필요' }[supportState(hospital)]);
+const markerIcon = status => ({
+  content: `<span class="map-marker ${status}"></span>`,
+  size: new naver.maps.Size(16, 16),
+  anchor: new naver.maps.Point(8, 8)
+});
 const coordsFor = hospital => {
   if (hospital.latitude == null || hospital.longitude == null || hospital.latitude === '' || hospital.longitude === '') return null;
   const latitude = Number(hospital.latitude);
@@ -24,6 +25,50 @@ const coordsFor = hospital => {
   return [latitude, longitude];
 };
 const popup = hospital => `<div class="popup"><h3>${escapeHtml(hospital.name)}</h3><p><strong>지역</strong> ${escapeHtml(hospital.region)}</p><p class="support ${supportState(hospital)}">● ${supportLabel(hospital)}</p><p><strong>유형</strong> ${escapeHtml(hospital.type)}</p><p><strong>지원 범위</strong><br>${escapeHtml(hospital.support_range)}</p><p><strong>진료 금액</strong><br>${escapeHtml(hospital.amount)}</p><p><strong>필요 서류</strong><br>${escapeHtml(hospital.docs)}</p></div>`;
+
+function loadNaverMaps() {
+  if (!window.NAVER_MAPS_KEY_ID) return Promise.reject(new Error('Naver Maps Client ID를 js/config.js에 설정해야 합니다.'));
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    let settled = false;
+    let timeout;
+    const cleanup = () => {
+      clearTimeout(timeout);
+      delete window.navermap_authFailure;
+      script.remove();
+    };
+    const fail = message => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
+    const ready = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve();
+    };
+
+    window.navermap_authFailure = () => fail('Naver Maps 인증에 실패했습니다. Client ID와 허용 도메인을 확인하세요.');
+    script.onerror = () => fail('Naver Maps SDK를 불러오지 못했습니다. 네트워크 연결을 확인하세요.');
+    script.onload = () => {
+      if (window.naver && window.naver.maps) ready();
+      else fail('Naver Maps SDK를 초기화하지 못했습니다.');
+    };
+    timeout = setTimeout(() => fail('Naver Maps SDK 응답 시간이 초과되었습니다.'), 15000);
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(window.NAVER_MAPS_KEY_ID)}`;
+    document.head.append(script);
+  });
+}
+
+function openInfoWindow(item) {
+  state.markers.forEach(({ infoWindow }) => {
+    if (infoWindow !== item.infoWindow) infoWindow.close();
+  });
+  item.infoWindow.open(map, item.marker);
+}
 
 async function loadHospitals() {
   if (!window.HOSPITALS_API_URL) throw new Error('Apps Script 웹 앱 URL을 js/config.js에 설정해야 합니다.');
@@ -60,23 +105,49 @@ function render() {
     const hasCoordinates = Boolean(coordsFor(h));
     return `<li><button class="hospital" data-id="${state.hospitals.indexOf(h)}" ${hasCoordinates ? '' : 'disabled title="좌표 정보가 등록되지 않았습니다."'}><span class="hospital-name">${escapeHtml(h.name)}<span class="badge ${supportState(h)}">${supportLabel(h)}</span></span><span class="hospital-meta">${escapeHtml(h.region)} · ${escapeHtml(h.type)}</span></button></li>`;
   }).join('') : '<li class="empty">검색 결과가 없습니다.</li>';
-  state.markers.forEach(({ marker, hospital }) => marker.setOpacity(filtered.includes(hospital) ? 1 : 0));
+  state.markers.forEach(item => {
+    const visible = filtered.includes(item.hospital);
+    item.marker.setVisible(visible);
+    if (!visible) item.infoWindow.close();
+  });
 }
 
-loadHospitals().then(hospitals => {
+Promise.all([loadNaverMaps(), loadHospitals()]).then(([, hospitals]) => {
+  map = new naver.maps.Map('map', {
+    center: new naver.maps.LatLng(36.35, 127.8),
+    zoom: 7,
+    zoomControl: true,
+    zoomControlOptions: { position: naver.maps.Position.TOP_RIGHT }
+  });
   state.hospitals = hospitals;
   document.querySelector('#total-count').textContent = hospitals.length;
   document.querySelector('#yes-count').textContent = hospitals.filter(isSupported).length;
   hospitals.forEach(hospital => {
     const coordinates = coordsFor(hospital);
     if (!coordinates) return;
-    const markerColor = { yes: '#159968', no: '#d95059', unknown: '#7b8794' }[supportState(hospital)];
-    const marker = L.circleMarker(coordinates, { radius: 7, color: '#fff', weight: 2, fillColor: markerColor, fillOpacity: .9 }).addTo(map).bindPopup(popup(hospital));
-    state.markers.push({ marker, hospital });
+    const marker = new naver.maps.Marker({
+      position: new naver.maps.LatLng(coordinates[0], coordinates[1]),
+      map,
+      title: hospital.name,
+      icon: markerIcon(supportState(hospital))
+    });
+    const infoWindow = new naver.maps.InfoWindow({
+      content: popup(hospital),
+      maxWidth: 300,
+      borderWidth: 0,
+      backgroundColor: 'transparent',
+      disableAnchor: true
+    });
+    const item = { marker, infoWindow, hospital };
+    naver.maps.Event.addListener(marker, 'click', () => {
+      if (infoWindow.getMap()) infoWindow.close();
+      else openInfoWindow(item);
+    });
+    state.markers.push(item);
   });
   render();
 }).catch(error => { document.querySelector('#results').textContent = error.message; });
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.filter').forEach(item => item.classList.remove('active')); button.classList.add('active'); state.filter = button.dataset.filter; render(); }));
-document.querySelector('#hospital-list').addEventListener('click', event => { const button = event.target.closest('[data-id]'); if (!button || button.disabled) return; const hospital = state.hospitals[Number(button.dataset.id)]; const item = state.markers.find(marker => marker.hospital === hospital); if (item) { item.marker.openPopup(); map.panTo(item.marker.getLatLng()); } });
+document.querySelector('#hospital-list').addEventListener('click', event => { const button = event.target.closest('[data-id]'); if (!button || button.disabled) return; const hospital = state.hospitals[Number(button.dataset.id)]; const item = state.markers.find(marker => marker.hospital === hospital); if (item) { openInfoWindow(item); map.panTo(item.marker.getPosition()); } });

@@ -11,3 +11,7 @@ The website reads the hospital list from the Apps Script web app, not from the c
 4. When `doGet` or its mapping changes, deploy a new web-app version. The deployed `/exec` endpoint is configured in `js/config.js` and must remain publicly readable.
 
 The Apps Script endpoint returns JSON with CORS enabled. The page maps its `{ ok, hospitals }` response to the site data model. Hospitals without valid coordinates remain in the directory but are not plotted or clickable on the map.
+
+## Naver Maps
+
+The browser loads the Naver Maps Web SDK with `NAVER_MAPS_KEY_ID` from `js/config.js`. This client key is visible in the static site, so restrict its Web Service URLs in Naver Cloud Platform to `http://localhost` and `https://wonwooky.github.io`. Do not put a Client Secret in frontend code.
