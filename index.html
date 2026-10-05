@@ -1,42 +1,67 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>행동하는의사회 - 외국인 진료소 지도</title>
+    <meta name="description" content="한국의 외국인 진료 지원 가능 기관을 찾는 지도 서비스" />
+    <title>외국인 진료소 찾기 | 행동하는의사회</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-      :root {
-        color-scheme: light dark;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        line-height: 1.5;
-      }
-
-      main {
-        max-width: 42rem;
-        padding: 2rem;
-        text-align: center;
-      }
+      :root { --ink: #17212b; --muted: #6b7785; --line: #e4e8ec; --blue: #1769d2; --pale: #f4f7fb; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); background: var(--pale); font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      button, input { font: inherit; }
+      .app { min-height: 100vh; display: grid; grid-template-rows: auto 1fr; }
+      header { background: #fff; border-bottom: 1px solid var(--line); padding: 22px 32px 18px; }
+      .brand { max-width: 1440px; margin: auto; display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+      .eyebrow { margin: 0 0 5px; color: var(--blue); font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+      h1 { margin: 0; font-size: clamp(22px, 3vw, 32px); letter-spacing: -.05em; }
+      .updated { color: var(--muted); font-size: 13px; }
+      .workspace { max-width: 1440px; width: 100%; margin: 0 auto; padding: 24px 32px 32px; display: grid; grid-template-columns: minmax(280px, 390px) 1fr; gap: 20px; min-height: 0; }
+      .panel, .map-wrap { background: #fff; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 8px 30px rgba(23,33,43,.05); }
+      .panel { display: flex; flex-direction: column; min-height: 620px; overflow: hidden; }
+      .controls { padding: 22px; border-bottom: 1px solid var(--line); }
+      .controls h2 { margin: 0 0 14px; font-size: 16px; }
+      .search { width: 100%; padding: 12px 14px; border: 1px solid #d9e0e7; border-radius: 9px; outline: none; }
+      .search:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(23,105,210,.12); }
+      .filters { display: flex; gap: 7px; margin-top: 12px; }
+      .filter { flex: 1; padding: 9px 5px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); cursor: pointer; font-size: 13px; }
+      .filter.active { color: var(--blue); border-color: #a9c9f4; background: #eef6ff; font-weight: 700; }
+      .summary { display: flex; gap: 20px; margin-top: 18px; }
+      .stat strong { display: block; font-size: 21px; letter-spacing: -.04em; }
+      .stat span { color: var(--muted); font-size: 12px; }
+      .results { padding: 13px 10px 13px 22px; color: var(--muted); font-size: 12px; }
+      .hospital-list { margin: 0; padding: 0 10px 18px 22px; overflow-y: auto; list-style: none; }
+      .hospital-list li { border-top: 1px solid var(--line); }
+      .hospital { width: 100%; padding: 14px 10px 14px 0; text-align: left; border: 0; background: none; cursor: pointer; }
+      .hospital:hover { color: var(--blue); }
+      .hospital-name { display: block; margin-bottom: 5px; font-weight: 750; }
+      .hospital-meta { color: var(--muted); font-size: 12px; }
+      .badge { display: inline-block; margin-left: 5px; padding: 3px 7px; border-radius: 20px; font-size: 10px; font-weight: 700; }
+      .badge.yes { color: #087443; background: #e5f8ef; } .badge.no { color: #b32f37; background: #fff0f0; }
+      .map-wrap { position: relative; min-height: 620px; overflow: hidden; }
+      #map { width: 100%; height: 100%; min-height: 620px; }
+      .legend { position: absolute; z-index: 500; right: 16px; bottom: 18px; padding: 11px 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(255,255,255,.95); box-shadow: 0 3px 12px rgba(0,0,0,.08); font-size: 12px; }
+      .dot { display: inline-block; width: 9px; height: 9px; margin-right: 5px; border-radius: 50%; } .dot.yes { background: #159968; } .dot.no { background: #d95059; }
+      .empty { padding: 30px 0; color: var(--muted); text-align: center; }
+      .popup h3 { margin: 0 0 9px; font-size: 16px; } .popup p { margin: 7px 0; font-size: 13px; line-height: 1.5; } .popup .support { font-weight: 700; } .popup .yes { color: #087443; } .popup .no { color: #b32f37; }
+      @media (max-width: 800px) { header { padding: 18px 18px 15px; } .brand { display: block; } .updated { display: block; margin-top: 8px; } .workspace { padding: 14px; grid-template-columns: 1fr; } .panel, .map-wrap { min-height: auto; } .panel { order: 2; } .map-wrap, #map { min-height: 55vh; height: 55vh; } }
     </style>
   </head>
   <body>
-    <main>
-      <h1>행동하는의사회 - 외국인 진료소 지도</h1>
-      <p style="color: #666; margin-top: 0.5rem;">
-        147 개 진료소 중 <strong>진료 지원 가능</strong> 기관만 표시합니다.
-      </p>
-    </main>
-    <div id="map"></div>
-
-    <!-- Leaflet JS -->
+    <div class="app">
+      <header><div class="brand"><div><p class="eyebrow">DAH · 행동하는의사회</p><h1>외국인 진료소 찾기</h1></div><span class="updated">진료 지원 정보를 한눈에 확인하세요</span></div></header>
+      <main class="workspace">
+        <aside class="panel">
+          <div class="controls"><h2>어디서 진료받을 수 있나요?</h2><input id="search" class="search" type="search" placeholder="기관명 또는 지역 검색" aria-label="기관명 또는 지역 검색" /><div class="filters" role="group" aria-label="진료 지원 상태"><button class="filter active" data-filter="all">전체</button><button class="filter" data-filter="yes">지원 가능</button><button class="filter" data-filter="no">지원 불가</button></div><div class="summary"><div class="stat"><strong id="total-count">-</strong><span>전체 기관</span></div><div class="stat"><strong id="yes-count">-</strong><span>지원 가능</span></div></div></div>
+          <div id="results" class="results">데이터를 불러오는 중입니다.</div>
+          <ul id="hospital-list" class="hospital-list" aria-live="polite"></ul>
+        </aside>
+        <section class="map-wrap" aria-label="진료소 지도"><div id="map"></div><div class="legend"><span class="dot yes"></span>지원 가능&nbsp;&nbsp; <span class="dot no"></span>지원 불가</div></section>
+      </main>
+    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
     <script src="js/main.js"></script>
   </body>
 </html>
