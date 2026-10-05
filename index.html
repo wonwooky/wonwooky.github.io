@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>wonwooky.github.io</title>
+    <title>행동하는의사회 - 외국인 진료소 지도</title>
     <style>
       :root {
         color-scheme: light dark;
@@ -27,8 +27,16 @@
   </head>
   <body>
     <main>
-      <h1>Welcome to wonwooky.github.io</h1>
-      <p>This is a static website hosted with GitHub Pages.</p>
+      <h1>행동하는의사회 - 외국인 진료소 지도</h1>
+      <p style="color: #666; margin-top: 0.5rem;">
+        147 개 진료소 중 <strong>진료 지원 가능</strong> 기관만 표시합니다.
+      </p>
     </main>
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script src="js/main.js"></script>
   </body>
 </html>
