@@ -1,5 +1,11 @@
 const state = { hospitals: [], markers: [], filter: 'all', query: '' };
 let map;
+const mobileViewport = window.matchMedia('(max-width: 800px)');
+const hospitalDialog = document.querySelector('#hospital-dialog');
+const hospitalDialogTitle = document.querySelector('#hospital-dialog-title');
+const hospitalDialogContent = document.querySelector('#hospital-dialog-content');
+const hospitalDialogClose = document.querySelector('.hospital-dialog-close');
+let dialogTrigger;
 
 const escapeHtml = value => String(value || '-').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
 const supportState = hospital => {
@@ -24,7 +30,8 @@ const coordsFor = hospital => {
   if (latitude < 33 || latitude > 39 || longitude < 124 || longitude > 132) return null;
   return [latitude, longitude];
 };
-const popup = hospital => `<div class="popup"><h3>${escapeHtml(hospital.name)}</h3><p><strong>지역</strong> ${escapeHtml(hospital.region)}</p><p class="support ${supportState(hospital)}">● ${supportLabel(hospital)}</p><p><strong>유형</strong> ${escapeHtml(hospital.type)}</p><p><strong>지원 범위</strong><br>${escapeHtml(hospital.support_range)}</p><p><strong>진료 금액</strong><br>${escapeHtml(hospital.amount)}</p><p><strong>필요 서류</strong><br>${escapeHtml(hospital.docs)}</p></div>`;
+const hospitalDetails = hospital => `<p><strong>지역</strong> ${escapeHtml(hospital.region)}</p><p class="support ${supportState(hospital)}">● ${supportLabel(hospital)}</p><p><strong>유형</strong> ${escapeHtml(hospital.type)}</p><p><strong>지원 범위</strong><br>${escapeHtml(hospital.support_range)}</p><p><strong>진료 금액</strong><br>${escapeHtml(hospital.amount)}</p><p><strong>필요 서류</strong><br>${escapeHtml(hospital.docs)}</p>`;
+const popup = hospital => `<div class="popup"><h3>${escapeHtml(hospital.name)}</h3>${hospitalDetails(hospital)}</div>`;
 
 function loadNaverMaps() {
   if (!window.NAVER_MAPS_KEY_ID) return Promise.reject(new Error('Naver Maps Client ID를 js/config.js에 설정해야 합니다.'));
@@ -67,7 +74,38 @@ function openInfoWindow(item) {
   state.markers.forEach(({ infoWindow }) => {
     if (infoWindow !== item.infoWindow) infoWindow.close();
   });
+  const popupContent = item.infoWindow.getContentElement();
+  popupContent.style.maxHeight = `${Math.floor(document.querySelector('#map').clientHeight * 0.45)}px`;
+  popupContent.style.overflowY = 'auto';
+  popupContent.style.overscrollBehavior = 'contain';
+  map.panTo(item.marker.getPosition());
   item.infoWindow.open(map, item.marker);
+}
+
+function openHospitalDialog(hospital, trigger) {
+  state.markers.forEach(({ infoWindow }) => infoWindow.close());
+  dialogTrigger = trigger || (document.activeElement === document.body ? null : document.activeElement);
+  hospitalDialogTitle.textContent = hospital.name || '-';
+  hospitalDialogContent.innerHTML = `<div class="popup">${hospitalDetails(hospital)}</div>`;
+  hospitalDialog.hidden = false;
+  fitHospitalDialogTitle();
+  hospitalDialogClose.focus();
+}
+
+function fitHospitalDialogTitle() {
+  if (hospitalDialog.hidden) return;
+  let fontSize = 23;
+  hospitalDialogTitle.style.fontSize = '';
+  while (hospitalDialogTitle.scrollWidth > hospitalDialogTitle.clientWidth && fontSize > 14) {
+    hospitalDialogTitle.style.fontSize = `${--fontSize}px`;
+  }
+}
+
+function closeHospitalDialog() {
+  hospitalDialog.hidden = true;
+  hospitalDialogContent.replaceChildren();
+  if (dialogTrigger && dialogTrigger.isConnected) dialogTrigger.focus();
+  dialogTrigger = null;
 }
 
 async function loadHospitals() {
@@ -103,7 +141,8 @@ function render() {
   const list = document.querySelector('#hospital-list');
   list.innerHTML = filtered.length ? filtered.map(h => {
     const hasCoordinates = Boolean(coordsFor(h));
-    return `<li><button class="hospital" data-id="${state.hospitals.indexOf(h)}" ${hasCoordinates ? '' : 'disabled title="좌표 정보가 등록되지 않았습니다."'}><span class="hospital-name">${escapeHtml(h.name)}<span class="badge ${supportState(h)}">${supportLabel(h)}</span></span><span class="hospital-meta">${escapeHtml(h.region)} · ${escapeHtml(h.type)}</span></button></li>`;
+    const unavailable = !hasCoordinates && !mobileViewport.matches;
+    return `<li><button class="hospital" data-id="${state.hospitals.indexOf(h)}" ${unavailable ? 'disabled title="좌표 정보가 등록되지 않았습니다."' : ''}><span class="hospital-name">${escapeHtml(h.name)}<span class="badge ${supportState(h)}">${supportLabel(h)}</span></span><span class="hospital-meta">${escapeHtml(h.region)} · ${escapeHtml(h.type)}</span></button></li>`;
   }).join('') : '<li class="empty">검색 결과가 없습니다.</li>';
   state.markers.forEach(item => {
     const visible = filtered.includes(item.hospital);
@@ -118,6 +157,9 @@ Promise.all([loadNaverMaps(), loadHospitals()]).then(([, hospitals]) => {
     zoom: 7,
     zoomControl: true,
     zoomControlOptions: { position: naver.maps.Position.TOP_RIGHT }
+  });
+  naver.maps.Event.addListener(map, 'click', () => {
+    state.markers.forEach(({ infoWindow }) => infoWindow.close());
   });
   state.hospitals = hospitals;
   document.querySelector('#total-count').textContent = hospitals.length;
@@ -134,12 +176,17 @@ Promise.all([loadNaverMaps(), loadHospitals()]).then(([, hospitals]) => {
     const infoWindow = new naver.maps.InfoWindow({
       content: popup(hospital),
       maxWidth: 300,
+      zIndex: 1000,
       borderWidth: 0,
       backgroundColor: 'transparent',
       disableAnchor: true
     });
     const item = { marker, infoWindow, hospital };
     naver.maps.Event.addListener(marker, 'click', () => {
+      if (mobileViewport.matches) {
+        openHospitalDialog(hospital);
+        return;
+      }
       if (infoWindow.getMap()) infoWindow.close();
       else openInfoWindow(item);
     });
@@ -150,4 +197,30 @@ Promise.all([loadNaverMaps(), loadHospitals()]).then(([, hospitals]) => {
 
 document.querySelector('#search').addEventListener('input', event => { state.query = event.target.value; render(); });
 document.querySelectorAll('.filter').forEach(button => button.addEventListener('click', () => { document.querySelectorAll('.filter').forEach(item => item.classList.remove('active')); button.classList.add('active'); state.filter = button.dataset.filter; render(); }));
-document.querySelector('#hospital-list').addEventListener('click', event => { const button = event.target.closest('[data-id]'); if (!button || button.disabled) return; const hospital = state.hospitals[Number(button.dataset.id)]; const item = state.markers.find(marker => marker.hospital === hospital); if (item) { openInfoWindow(item); map.panTo(item.marker.getPosition()); } });
+document.querySelector('#hospital-list').addEventListener('click', event => {
+  const button = event.target.closest('[data-id]');
+  if (!button || button.disabled) return;
+  const hospital = state.hospitals[Number(button.dataset.id)];
+  if (mobileViewport.matches) {
+    openHospitalDialog(hospital, button);
+    return;
+  }
+  const item = state.markers.find(marker => marker.hospital === hospital);
+  if (item) openInfoWindow(item);
+});
+hospitalDialogClose.addEventListener('click', closeHospitalDialog);
+hospitalDialog.addEventListener('click', event => {
+  if (event.target === hospitalDialog) closeHospitalDialog();
+});
+hospitalDialog.addEventListener('keydown', event => {
+  if (event.key === 'Escape') closeHospitalDialog();
+  else if (event.key === 'Tab') {
+    event.preventDefault();
+    hospitalDialogClose.focus();
+  }
+});
+mobileViewport.addEventListener('change', () => {
+  if (!mobileViewport.matches && !hospitalDialog.hidden) closeHospitalDialog();
+  render();
+});
+window.addEventListener('resize', fitHospitalDialogTitle);
